@@ -140,21 +140,14 @@ func parseRocmProcesses(raw string) ([]GpuProcess, error) {
 		return nil, nil
 	}
 
-	header := records[0]
-	colIdx := map[string]int{}
-	for i, h := range header {
-		colIdx[strings.TrimSpace(strings.ToLower(h))] = i
-	}
-
-	gpuIdx, hasGPU := colIdx["device"]
-	pidIdx, hasPID := colIdx["pid"]
-	if !hasGPU || !hasPID {
-		return nil, fmt.Errorf("rocm-smi processes: missing device or pid column")
+	headerIdx, header, colIdx, gpuIdx, pidIdx := findRocmProcessHeader(records)
+	if pidIdx < 0 {
+		return nil, nil
 	}
 
 	procs := make([]GpuProcess, 0)
-	for _, row := range records[1:] {
-		if gpuIdx < 0 || pidIdx < 0 || gpuIdx >= len(row) || pidIdx >= len(row) {
+	for _, row := range records[headerIdx+1:] {
+		if pidIdx >= len(row) {
 			continue
 		}
 
@@ -163,13 +156,18 @@ func parseRocmProcesses(raw string) ([]GpuProcess, error) {
 			continue
 		}
 
+		gpuID := "unknown"
+		if gpuIdx >= 0 && gpuIdx < len(row) {
+			gpuID = strings.TrimSpace(row[gpuIdx])
+		}
+
 		p := GpuProcess{
-			GpuID:   strings.TrimSpace(row[gpuIdx]),
-			GpuUUID: strings.TrimSpace(row[gpuIdx]),
+			GpuID:   gpuID,
+			GpuUUID: gpuID,
 			PID:     pid,
 		}
 
-		nameIdx, hasName := colIdx["name"]
+		nameIdx, hasName := findRocmColumn(colIdx, rocmProcessNameColumns)
 		if hasName && nameIdx >= 0 && nameIdx < len(row) {
 			name := row[nameIdx]
 			if nameIdx == len(header)-1 && len(row) > len(header) {
@@ -186,6 +184,49 @@ func parseRocmProcesses(raw string) ([]GpuProcess, error) {
 		procs = append(procs, p)
 	}
 	return procs, nil
+}
+
+var (
+	rocmGPUColumns         = []string{"device", "gpu", "gpu id", "gpu_id", "card", "card id", "card_id"}
+	rocmPIDColumns         = []string{"pid", "process id", "process_id", "process pid"}
+	rocmProcessNameColumns = []string{"name", "process name", "process_name", "command", "cmd"}
+)
+
+func findRocmProcessHeader(records [][]string) (int, []string, map[string]int, int, int) {
+	for i, row := range records {
+		colIdx := makeRocmColumnIndex(row)
+		pidIdx, hasPID := findRocmColumn(colIdx, rocmPIDColumns)
+		if !hasPID {
+			continue
+		}
+		gpuIdx, _ := findRocmColumn(colIdx, rocmGPUColumns)
+		return i, row, colIdx, gpuIdx, pidIdx
+	}
+	return -1, nil, nil, -1, -1
+}
+
+func makeRocmColumnIndex(header []string) map[string]int {
+	colIdx := map[string]int{}
+	for i, h := range header {
+		colIdx[normalizeRocmColumnName(h)] = i
+	}
+	return colIdx
+}
+
+func normalizeRocmColumnName(name string) string {
+	name = strings.Trim(strings.TrimSpace(strings.ToLower(name)), `"'`)
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.Join(strings.Fields(name), " ")
+	return name
+}
+
+func findRocmColumn(colIdx map[string]int, names []string) (int, bool) {
+	for _, name := range names {
+		if i, ok := colIdx[normalizeRocmColumnName(name)]; ok {
+			return i, true
+		}
+	}
+	return -1, false
 }
 
 func parseRocmProcessMemory(row []string, colIdx map[string]int) *float64 {
