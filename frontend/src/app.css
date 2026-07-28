@@ -2,6 +2,11 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+@theme {
+  --font-sans: 'Iosevka Charon', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: 'Iosevka Charon', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 :root {
   --tblr-body-bg: #f8f9fa;
   --tblr-body-color: #1e293b;
@@ -15,9 +20,10 @@
   --tblr-danger: #e03131;
   --tblr-warning: #f76707;
   --tblr-muted: #64748b;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Iosevka Charon', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+html,
 body {
   @apply antialiased;
   background: var(--tblr-body-bg);
@@ -25,6 +31,13 @@ body {
   font-family: var(--font-sans);
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 .dark {
