@@ -26,34 +26,39 @@
     avgTemp: number;
   };
 
+  type ChartMetric = 'vram' | 'power';
+
   type ChartLine = {
     id: string;
     label: string;
-    kind: 'vram' | 'power';
     color: string;
     path: string;
     latestX: number;
     latestY: number;
+    labelY: number;
     latestValue: number;
   };
 
   type ChartData = {
+    kind: ChartMetric;
+    title: string;
+    unit: string;
     lines: ChartLine[];
-    vramMax: number;
-    powerMax: number;
+    maxValue: number;
+    ticks: number[];
     startLabel: string;
     endLabel: string;
   };
 
-  const MAX_CHART_POINTS = 36;
+  const MAX_CHART_POINTS = 60;
   const CHART_COLORS = ['#2563eb', '#16a34a', '#f97316', '#dc2626', '#7c3aed', '#0891b2', '#ca8a04', '#db2777'];
   const CHART = {
-    width: 1000,
-    height: 320,
-    left: 64,
-    right: 72,
-    top: 28,
-    bottom: 58
+    width: 1040,
+    height: 240,
+    left: 54,
+    right: 138,
+    top: 22,
+    bottom: 38
   };
 
   let gpus = $state<GpuMetricsRow[]>([]);
@@ -175,11 +180,19 @@
       .sort((a, b) => a.hostname.localeCompare(b.hostname));
   }
 
+  function niceMax(value: number) {
+    if (value <= 1) return 1;
+    const magnitude = 10 ** Math.floor(Math.log10(value));
+    const normalized = value / magnitude;
+    const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    return nice * magnitude;
+  }
+
   function scalePoint(timestamp: number, value: number, maxValue: number, minTime: number, maxTime: number) {
     const plotWidth = CHART.width - CHART.left - CHART.right;
     const plotHeight = CHART.height - CHART.top - CHART.bottom;
     const x = maxTime === minTime
-      ? CHART.left + plotWidth
+      ? CHART.left + plotWidth / 2
       : CHART.left + ((timestamp - minTime) / (maxTime - minTime)) * plotWidth;
     const y = CHART.top + plotHeight - (Math.min(value, maxValue) / maxValue) * plotHeight;
     return { x, y };
@@ -194,16 +207,50 @@
     return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
   }
 
-  function buildChartData(samples: LiveSample[]): ChartData {
+  function formatChartValue(value: number, unit: string) {
+    const formatted = unit === 'GB' ? formatGb(value) : value.toFixed(0);
+    return `${formatted}${unit}`;
+  }
+
+  function distributeLabelY(lines: ChartLine[]) {
+    const minY = CHART.top + 4;
+    const maxY = CHART.height - CHART.bottom - 4;
+    const minGap = 18;
+    const sorted = lines.toSorted((a, b) => a.latestY - b.latestY);
+
+    for (const [index, line] of sorted.entries()) {
+      line.labelY = Math.max(minY, Math.min(maxY, index === 0 ? line.latestY : Math.max(line.latestY, sorted[index - 1].labelY + minGap)));
+    }
+
+    for (let index = sorted.length - 2; index >= 0; index -= 1) {
+      sorted[index].labelY = Math.min(sorted[index].labelY, sorted[index + 1].labelY - minGap);
+    }
+
+    for (const line of sorted) {
+      line.labelY = Math.max(minY, Math.min(maxY, line.labelY));
+    }
+  }
+
+  function buildChartData(samples: LiveSample[], kind: ChartMetric): ChartData {
+    const unit = kind === 'vram' ? 'GB' : 'W';
+    const title = kind === 'vram' ? 'VRAM Usage' : 'Power Draw';
+
     if (samples.length === 0) {
-      return { lines: [], vramMax: 1, powerMax: 1, startLabel: '', endLabel: '' };
+      return { kind, title, unit, lines: [], maxValue: 1, ticks: [1, 0.5, 0], startLabel: '', endLabel: '' };
     }
 
     const times = samples.map((sample) => sample.timestamp);
     const minTime = Math.min(...times);
     const maxTime = Math.max(...times);
-    const vramMax = Math.max(1, ...samples.map((sample) => sample.memory_total_gb || sample.memory_used_gb));
-    const powerMax = Math.max(1, ...samples.map((sample) => sample.power_limit || sample.power_draw));
+    const rawMax = Math.max(
+      1,
+      ...samples.map((sample) => kind === 'vram'
+        ? sample.memory_total_gb || sample.memory_used_gb
+        : sample.power_limit || sample.power_draw
+      )
+    );
+    const maxValue = niceMax(rawMax);
+    const ticks = [maxValue, maxValue * 0.75, maxValue * 0.5, maxValue * 0.25, 0];
     const grouped = new Map<string, LiveSample[]>();
 
     for (const sample of samples) {
@@ -219,37 +266,37 @@
     for (const [key, groupSamples] of sortedGroups) {
       const sortedSamples = groupSamples.toSorted((a, b) => a.timestamp - b.timestamp);
       const latest = sortedSamples[sortedSamples.length - 1];
-      const color = CHART_COLORS[lines.length / 2 % CHART_COLORS.length | 0];
-      const vramPoints = sortedSamples.map((sample) => scalePoint(sample.timestamp, sample.memory_used_gb, vramMax, minTime, maxTime));
-      const powerPoints = sortedSamples.map((sample) => scalePoint(sample.timestamp, sample.power_draw, powerMax, minTime, maxTime));
+      const color = CHART_COLORS[lines.length % CHART_COLORS.length];
+      const points = sortedSamples.map((sample) => scalePoint(
+        sample.timestamp,
+        kind === 'vram' ? sample.memory_used_gb : sample.power_draw,
+        maxValue,
+        minTime,
+        maxTime
+      ));
       const label = gpuLabel(latest.hostname, latest.gpu_id);
 
       lines.push({
-        id: `${key}-vram`,
+        id: `${key}-${kind}`,
         label,
-        kind: 'vram',
         color,
-        path: buildPath(vramPoints),
-        latestX: vramPoints[vramPoints.length - 1].x,
-        latestY: vramPoints[vramPoints.length - 1].y,
-        latestValue: latest.memory_used_gb
-      });
-      lines.push({
-        id: `${key}-power`,
-        label,
-        kind: 'power',
-        color,
-        path: buildPath(powerPoints),
-        latestX: powerPoints[powerPoints.length - 1].x,
-        latestY: powerPoints[powerPoints.length - 1].y,
-        latestValue: latest.power_draw
+        path: buildPath(points),
+        latestX: points[points.length - 1].x,
+        latestY: points[points.length - 1].y,
+        labelY: points[points.length - 1].y,
+        latestValue: kind === 'vram' ? latest.memory_used_gb : latest.power_draw
       });
     }
 
+    distributeLabelY(lines);
+
     return {
+      kind,
+      title,
+      unit,
       lines,
-      vramMax,
-      powerMax,
+      maxValue,
+      ticks,
       startLabel: new Date(minTime).toLocaleTimeString(),
       endLabel: new Date(maxTime).toLocaleTimeString()
     };
@@ -261,7 +308,8 @@
   let totalMemory = $derived(gpus.reduce((sum, gpu) => sum + (gpu.memory_used ?? 0), 0));
   let maxMemory = $derived(gpus.reduce((sum, gpu) => sum + (gpu.memory_total ?? 0), 0));
   let serverGroups = $derived(buildServerGroups(gpus, processes));
-  let chartData = $derived(buildChartData(chartSamples));
+  let chartPanels = $derived([buildChartData(chartSamples, 'vram'), buildChartData(chartSamples, 'power')]);
+  let chartGpuCount = $derived(new Set(chartSamples.map(sampleKey)).size);
 </script>
 
 <svelte:head>
@@ -337,68 +385,99 @@
   <div class="card">
     <div class="card-header flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <div>VRAM and Power Trend</div>
+        <div>GPU Metrics Trend</div>
         <div class="text-xs font-normal mt-0.5" style="color: var(--tblr-muted);">
-          {chartSamples.length > 0 ? `${chartData.startLabel} - ${chartData.endLabel}` : 'Waiting for live samples'}
+          {chartSamples.length > 0 ? `${chartPanels[0].startLabel} - ${chartPanels[0].endLabel}` : 'Waiting for live samples'}
         </div>
       </div>
-      <div class="flex items-center gap-4 text-xs" style="color: var(--tblr-muted);">
-        <span class="inline-flex items-center gap-1.5"><span class="h-0.5 w-5 rounded bg-blue-600"></span>VRAM</span>
-        <span class="inline-flex items-center gap-1.5"><span class="h-0.5 w-5 border-t-2 border-dashed border-blue-600"></span>Power</span>
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <span class="badge badge-success">{chartGpuCount} GPU{chartGpuCount === 1 ? '' : 's'}</span>
+        <span class="badge" style="background: rgb(32 107 196 / 0.1); color: var(--tblr-primary);">
+          {Math.min(MAX_CHART_POINTS, chartSamples.length)} live samples
+        </span>
       </div>
     </div>
     <div class="card-body">
-      {#if chartData.lines.length > 0}
-        <div class="overflow-x-auto">
-          <svg
-            viewBox="0 0 {CHART.width} {CHART.height}"
-            class="min-w-[760px] w-full"
-            role="img"
-            aria-label="Live VRAM and power chart for all GPUs"
-          >
-            <rect x="0" y="0" width={CHART.width} height={CHART.height} rx="8" fill="transparent" />
-            {#each [0, 1, 2, 3] as tick}
-              {@const y = CHART.top + ((CHART.height - CHART.top - CHART.bottom) / 3) * tick}
-              <line x1={CHART.left} x2={CHART.width - CHART.right} y1={y} y2={y} stroke="var(--tblr-card-border)" stroke-width="1" />
-            {/each}
-            <line x1={CHART.left} x2={CHART.left} y1={CHART.top} y2={CHART.height - CHART.bottom} stroke="var(--tblr-muted)" stroke-width="1" opacity="0.55" />
-            <line x1={CHART.left} x2={CHART.width - CHART.right} y1={CHART.height - CHART.bottom} y2={CHART.height - CHART.bottom} stroke="var(--tblr-muted)" stroke-width="1" opacity="0.55" />
+      {#if chartPanels.some((panel) => panel.lines.length > 0)}
+        <div class="grid gap-5 2xl:grid-cols-2">
+          {#each chartPanels as panel (panel.kind)}
+            <section class="rounded border p-4" style="border-color: var(--tblr-card-border);">
+              <div class="mb-3 flex items-start justify-between gap-4">
+                <div>
+                  <h2 class="text-sm font-semibold">{panel.title}</h2>
+                  <p class="mt-0.5 text-xs" style="color: var(--tblr-muted);">
+                    Live trend by server GPU
+                  </p>
+                </div>
+                <div class="text-right">
+                  <div class="stat-label">Scale</div>
+                  <div class="text-sm font-semibold">{formatChartValue(panel.maxValue, panel.unit)}</div>
+                </div>
+              </div>
 
-            <text x={CHART.left - 12} y={CHART.top + 4} text-anchor="end" class="fill-current text-[22px]" style="color: var(--tblr-muted);">
-              {formatGb(chartData.vramMax)}GB
-            </text>
-            <text x={CHART.width - CHART.right + 12} y={CHART.top + 4} class="fill-current text-[22px]" style="color: var(--tblr-muted);">
-              {chartData.powerMax.toFixed(0)}W
-            </text>
-            <text x={CHART.left} y={CHART.height - 18} class="fill-current text-[22px]" style="color: var(--tblr-muted);">
-              {chartData.startLabel}
-            </text>
-            <text x={CHART.width - CHART.right} y={CHART.height - 18} text-anchor="end" class="fill-current text-[22px]" style="color: var(--tblr-muted);">
-              {chartData.endLabel}
-            </text>
+              <div class="overflow-x-auto">
+                <svg
+                  viewBox="0 0 {CHART.width} {CHART.height}"
+                  class="min-w-[760px] w-full"
+                  role="img"
+                  aria-label="{panel.title} chart for all GPUs"
+                >
+                  <defs>
+                    <linearGradient id="chart-fill-{panel.kind}" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stop-color={panel.kind === 'vram' ? '#2563eb' : '#f97316'} stop-opacity="0.12" />
+                      <stop offset="100%" stop-color={panel.kind === 'vram' ? '#2563eb' : '#f97316'} stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
 
-            {#each chartData.lines as line (line.id)}
-              <path
-                d={line.path}
-                fill="none"
-                stroke={line.color}
-                stroke-width={line.kind === 'vram' ? 3 : 2}
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-dasharray={line.kind === 'power' ? '7 7' : undefined}
-                opacity={line.kind === 'vram' ? 0.92 : 0.72}
-              />
-              <circle cx={line.latestX} cy={line.latestY} r={line.kind === 'vram' ? 4 : 3} fill={line.color} opacity={line.kind === 'vram' ? 1 : 0.8} />
-            {/each}
-          </svg>
-        </div>
-        <div class="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs">
-          {#each serverGroups.flatMap((server) => server.gpus) as gpu (gpuKey(gpu))}
-            {@const color = CHART_COLORS[serverGroups.flatMap((server) => server.gpus).findIndex((item) => gpuKey(item) === gpuKey(gpu)) % CHART_COLORS.length]}
-            <a href="/gpus/{encodeURIComponent(gpu.hostname)}/{gpu.gpu_id}" class="inline-flex items-center gap-1.5" style="color: var(--tblr-muted);">
-              <span class="h-2.5 w-2.5 rounded-full" style="background: {color};"></span>
-              {gpuLabel(gpu.hostname, gpu.gpu_id)}
-            </a>
+                  <rect x={CHART.left} y={CHART.top} width={CHART.width - CHART.left - CHART.right} height={CHART.height - CHART.top - CHART.bottom} rx="8" fill="url(#chart-fill-{panel.kind})" />
+
+                  {#each panel.ticks as tick}
+                    {@const y = CHART.top + (1 - tick / panel.maxValue) * (CHART.height - CHART.top - CHART.bottom)}
+                    <line x1={CHART.left} x2={CHART.width - CHART.right} y1={y} y2={y} stroke="var(--tblr-card-border)" stroke-width="1" />
+                    <text x={CHART.left - 10} y={y + 4} text-anchor="end" class="fill-current text-[11px]" style="color: var(--tblr-muted);">
+                      {formatChartValue(tick, panel.unit)}
+                    </text>
+                  {/each}
+
+                  <line x1={CHART.left} x2={CHART.left} y1={CHART.top} y2={CHART.height - CHART.bottom} stroke="var(--tblr-card-border)" stroke-width="1.2" />
+                  <line x1={CHART.left} x2={CHART.width - CHART.right} y1={CHART.height - CHART.bottom} y2={CHART.height - CHART.bottom} stroke="var(--tblr-card-border)" stroke-width="1.2" />
+
+                  <text x={CHART.left} y={CHART.height - 12} class="fill-current text-[11px]" style="color: var(--tblr-muted);">
+                    {panel.startLabel}
+                  </text>
+                  <text x={CHART.width - CHART.right} y={CHART.height - 12} text-anchor="end" class="fill-current text-[11px]" style="color: var(--tblr-muted);">
+                    {panel.endLabel}
+                  </text>
+
+                  {#each panel.lines as line (line.id)}
+                    <path
+                      d={line.path}
+                      fill="none"
+                      stroke={line.color}
+                      stroke-width="2.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      opacity="0.9"
+                      vector-effect="non-scaling-stroke"
+                    />
+                    <line
+                      x1={line.latestX + 7}
+                      x2={CHART.width - CHART.right + 8}
+                      y1={line.latestY}
+                      y2={line.labelY}
+                      stroke={line.color}
+                      stroke-width="1"
+                      opacity="0.35"
+                      vector-effect="non-scaling-stroke"
+                    />
+                    <circle cx={line.latestX} cy={line.latestY} r="4" fill={line.color} stroke="var(--tblr-card-bg)" stroke-width="2" />
+                    <text x={CHART.width - CHART.right + 12} y={line.labelY + 4} class="fill-current text-[10px]">
+                      {line.label} · {formatChartValue(line.latestValue, panel.unit)}
+                    </text>
+                  {/each}
+                </svg>
+              </div>
+            </section>
           {/each}
         </div>
       {:else}
