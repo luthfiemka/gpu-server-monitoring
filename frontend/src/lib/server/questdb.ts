@@ -69,6 +69,31 @@ export interface GpuTrendRow {
   power_limit: number;
 }
 
+const ALLOWED_SAMPLE_BY = new Set(['30s', '1m', '5m', '15m', '30m', '1h', '1d']);
+
+const GPU_METRICS_SAMPLE_SELECT = `
+      "timestamp",
+      hostname,
+      gpu_id,
+      first(gpu_uuid) gpu_uuid,
+      first(gpu_name) gpu_name,
+      avg(utilization_gpu) utilization_gpu,
+      avg(utilization_mem) utilization_mem,
+      avg(memory_used) memory_used,
+      max(memory_total) memory_total,
+      avg(temperature) temperature,
+      avg(power_draw) power_draw,
+      max(power_limit) power_limit,
+      avg(fan_speed) fan_speed
+`;
+
+function normalizeSampleBy(sampleBy: string) {
+  if (!ALLOWED_SAMPLE_BY.has(sampleBy)) {
+    throw new Error(`Unsupported sample_by interval: ${sampleBy}`);
+  }
+  return sampleBy;
+}
+
 function dedupLatestByHostGpu(rows: GpuMetricsRow[]): GpuMetricsRow[] {
   const map = new Map<string, GpuMetricsRow>();
   for (const r of rows) {
@@ -118,12 +143,15 @@ export async function getGpuHistory(
   to: string,
   sampleBy = '1m'
 ): Promise<GpuMetricsRow[]> {
+  const interval = normalizeSampleBy(sampleBy);
   return querySql<GpuMetricsRow>(`
-    SELECT * FROM gpu_metrics
+    SELECT
+${GPU_METRICS_SAMPLE_SELECT}
+    FROM gpu_metrics
     WHERE hostname = '${hostname}'
       AND gpu_id = '${gpuId}'
       AND "timestamp" BETWEEN '${from}' AND '${to}'
-    SAMPLE BY ${sampleBy} ALIGN TO CALENDAR
+    SAMPLE BY ${interval} ALIGN TO CALENDAR
     ORDER BY "timestamp"
   `);
 }
@@ -135,12 +163,23 @@ export async function getGpuProcessesHistory(
   to: string,
   sampleBy = '1m'
 ): Promise<GpuProcessRow[]> {
+  const interval = normalizeSampleBy(sampleBy);
   return querySql<GpuProcessRow>(`
-    SELECT * FROM gpu_processes
+    SELECT
+      "timestamp",
+      hostname,
+      gpu_id,
+      process_name,
+      username,
+      container_id,
+      container_name,
+      first(pid) pid,
+      avg(used_memory) used_memory
+    FROM gpu_processes
     WHERE hostname = '${hostname}'
       AND gpu_id = '${gpuId}'
       AND "timestamp" BETWEEN '${from}' AND '${to}'
-    SAMPLE BY ${sampleBy} ALIGN TO CALENDAR
+    SAMPLE BY ${interval} ALIGN TO CALENDAR
     ORDER BY "timestamp"
   `);
 }
@@ -150,11 +189,14 @@ export async function getHistory(
   to: string,
   sampleBy = '5m'
 ): Promise<GpuMetricsRow[]> {
+  const interval = normalizeSampleBy(sampleBy);
   return querySql<GpuMetricsRow>(`
-    SELECT * FROM gpu_metrics
+    SELECT
+${GPU_METRICS_SAMPLE_SELECT}
+    FROM gpu_metrics
     WHERE "timestamp" BETWEEN '${from}' AND '${to}'
-    SAMPLE BY ${sampleBy} ALIGN TO CALENDAR
-    ORDER BY "timestamp", gpu_id
+    SAMPLE BY ${interval} ALIGN TO CALENDAR
+    ORDER BY "timestamp", hostname, gpu_id
   `);
 }
 
@@ -163,6 +205,7 @@ export async function getGpuTrend(
   to: string,
   sampleBy = '30m'
 ): Promise<GpuTrendRow[]> {
+  const interval = normalizeSampleBy(sampleBy);
   return querySql<GpuTrendRow>(`
     SELECT
       "timestamp",
@@ -174,7 +217,7 @@ export async function getGpuTrend(
       max(power_limit) power_limit
     FROM gpu_metrics
     WHERE "timestamp" BETWEEN '${from}' AND '${to}'
-    SAMPLE BY ${sampleBy} ALIGN TO CALENDAR
+    SAMPLE BY ${interval} ALIGN TO CALENDAR
     ORDER BY "timestamp", hostname, gpu_id
   `);
 }
