@@ -41,6 +41,10 @@
       currentPage = totalPages;
     }
   });
+
+  function formatOptionalMemory(value: number | null | undefined) {
+    return value == null || Number.isNaN(value) ? '-' : `${value.toFixed(0)} MB`;
+  }
 </script>
 
 <div>
@@ -55,6 +59,8 @@
           <th>User</th>
           <th>Container</th>
           <th class="text-end">VRAM</th>
+          <th class="text-end">Mem Alloc</th>
+          <th class="text-end">Shared</th>
         </tr>
       </thead>
       <tbody>
@@ -78,12 +84,14 @@
                 <span style="color: var(--tblr-muted);">-</span>
               {/if}
             </td>
-            <td class="text-end font-medium">{(proc.used_memory ?? 0).toFixed(0)} MB</td>
+            <td class="text-end font-medium">{formatOptionalMemory(proc.used_memory)}</td>
+            <td class="text-end">{formatOptionalMemory(proc.mem_alloc ?? proc.used_memory)}</td>
+            <td class="text-end">{formatOptionalMemory(proc.shared_memory)}</td>
           </tr>
         {/each}
         {#if sortedProcesses.length === 0}
           <tr>
-            <td colspan="7" class="text-center py-8" style="color: var(--tblr-muted);">
+            <td colspan="9" class="text-center py-8" style="color: var(--tblr-muted);">
               No running GPU processes
             </td>
           </tr>

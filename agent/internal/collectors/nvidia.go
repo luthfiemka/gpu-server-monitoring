@@ -25,11 +25,13 @@ type GpuMetrics struct {
 }
 
 type GpuProcess struct {
-	GpuID       string
-	GpuUUID     string
-	PID         int
-	ProcessName string
-	UsedMemory  *float64
+	GpuID        string
+	GpuUUID      string
+	PID          int
+	ProcessName  string
+	UsedMemory   *float64
+	MemAlloc     *float64
+	SharedMemory *float64
 }
 
 func parseFloat(s string) *float64 {
@@ -153,6 +155,7 @@ func CollectProcesses() ([]GpuProcess, error) {
 			PID:         pid,
 			ProcessName: strings.TrimSpace(row[2]),
 			UsedMemory:  mem,
+			MemAlloc:    mem,
 		})
 	}
 	return procs, nil

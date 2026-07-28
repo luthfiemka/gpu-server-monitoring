@@ -8,6 +8,8 @@
     hostname: string;
     gpu_id: string;
     total_memory: number;
+    total_mem_alloc: number;
+    total_shared_memory: number;
     memory_total: number;
     process_count: number;
   }
@@ -18,6 +20,8 @@
     label: string;
     gpus: ContainerSummary[];
     totalMemory: number;
+    totalMemAlloc: number;
+    totalSharedMemory: number;
     totalCapacity: number;
     processCount: number;
     percentOfUsed: number;
@@ -60,6 +64,7 @@
   onMount(fetchContainers);
 
   function formatMemory(mb: number) {
+    if (mb < 1024) return `${mb.toFixed(0)} MB`;
     const gb = mb / 1024;
     return gb >= 10 ? `${gb.toFixed(0)} GB` : `${gb.toFixed(1)} GB`;
   }
@@ -96,6 +101,8 @@
         );
         const first = sortedGpus[0];
         const totalMemory = sortedGpus.reduce((sum, row) => sum + (row.total_memory ?? 0), 0);
+        const totalMemAlloc = sortedGpus.reduce((sum, row) => sum + (row.total_mem_alloc ?? row.total_memory ?? 0), 0);
+        const totalSharedMemory = sortedGpus.reduce((sum, row) => sum + (row.total_shared_memory ?? 0), 0);
         const totalCapacity = sortedGpus.reduce((sum, row) => sum + (row.memory_total ?? 0), 0);
         const processCount = sortedGpus.reduce((sum, row) => sum + (row.process_count ?? 0), 0);
 
@@ -105,6 +112,8 @@
           label: first ? containerLabel(first) : shortContainerId(containerId),
           gpus: sortedGpus,
           totalMemory,
+          totalMemAlloc,
+          totalSharedMemory,
           totalCapacity,
           processCount,
           percentOfUsed: safePercent(totalMemory, totalUsed),
@@ -126,6 +135,8 @@
               label: 'Others',
               gpus: [],
               totalMemory: groups.slice(7).reduce((sum, group) => sum + group.totalMemory, 0),
+              totalMemAlloc: groups.slice(7).reduce((sum, group) => sum + group.totalMemAlloc, 0),
+              totalSharedMemory: groups.slice(7).reduce((sum, group) => sum + group.totalSharedMemory, 0),
               totalCapacity: 0,
               processCount: groups.slice(7).reduce((sum, group) => sum + group.processCount, 0),
               percentOfUsed: groups.slice(7).reduce((sum, group) => sum + group.percentOfUsed, 0),
@@ -162,6 +173,8 @@
 
   let containerGroups = $derived(buildContainerGroups(containers));
   let totalUsedMemory = $derived(containers.reduce((sum, row) => sum + (row.total_memory ?? 0), 0));
+  let totalMemAlloc = $derived(containers.reduce((sum, row) => sum + (row.total_mem_alloc ?? row.total_memory ?? 0), 0));
+  let totalSharedMemory = $derived(containers.reduce((sum, row) => sum + (row.total_shared_memory ?? 0), 0));
   let totalCapacity = $derived(sumDistinctGpuCapacity(containers));
   let totalProcesses = $derived(containers.reduce((sum, row) => sum + (row.process_count ?? 0), 0));
   let topContainer = $derived(containerGroups[0]);
@@ -243,7 +256,7 @@
         </div>
       </section>
 
-      <section class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <section class="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-6">
         <div class="stat-card">
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -260,6 +273,24 @@
               <div class="stat-value">{formatMemory(totalUsedMemory)}</div>
             </div>
             <Database class="h-5 w-5" style="color: #7c3aed;" />
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="stat-label">Mem Alloc</div>
+              <div class="stat-value">{formatMemory(totalMemAlloc)}</div>
+            </div>
+            <Database class="h-5 w-5" style="color: #0891b2;" />
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="stat-label">Shared Mem</div>
+              <div class="stat-value">{formatMemory(totalSharedMemory)}</div>
+            </div>
+            <Database class="h-5 w-5" style="color: #ca8a04;" />
           </div>
         </div>
         <div class="stat-card">
@@ -305,6 +336,21 @@
             </div>
           </div>
           <div class="card-body space-y-4">
+            <div class="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <div style="color: var(--tblr-muted);">VRAM</div>
+                <div class="mt-0.5 font-semibold">{formatMemory(group.totalMemory)}</div>
+              </div>
+              <div>
+                <div style="color: var(--tblr-muted);">Mem Alloc</div>
+                <div class="mt-0.5 font-semibold">{formatMemory(group.totalMemAlloc)}</div>
+              </div>
+              <div>
+                <div style="color: var(--tblr-muted);">Shared</div>
+                <div class="mt-0.5 font-semibold">{formatMemory(group.totalSharedMemory)}</div>
+              </div>
+            </div>
+
             <div>
               <div class="mb-1 flex justify-between text-xs">
                 <span style="color: var(--tblr-muted);">Container VRAM allocation</span>
@@ -325,6 +371,8 @@
                     <th>Server</th>
                     <th>GPU</th>
                     <th class="text-end">VRAM</th>
+                    <th class="text-end">Mem Alloc</th>
+                    <th class="text-end">Shared</th>
                     <th class="text-end">%</th>
                   </tr>
                 </thead>
@@ -337,6 +385,8 @@
                         <a href="/gpus/{encodeURIComponent(gpu.hostname)}/{gpu.gpu_id}" style="color: var(--tblr-primary);">GPU {gpu.gpu_id}</a>
                       </td>
                       <td class="text-end">{formatMemory(gpu.total_memory)}</td>
+                      <td class="text-end">{formatMemory(gpu.total_mem_alloc ?? gpu.total_memory)}</td>
+                      <td class="text-end">{formatMemory(gpu.total_shared_memory ?? 0)}</td>
                       <td class="text-end">
                         <span class="badge {gpuPercent >= 90 ? 'badge-danger' : gpuPercent >= 70 ? 'badge-warning' : 'badge-success'}">
                           {gpuPercent.toFixed(1)}%

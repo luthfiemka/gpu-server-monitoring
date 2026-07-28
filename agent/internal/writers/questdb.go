@@ -92,6 +92,14 @@ func (w *QuestDBWriter) WriteBatch(
 		}
 
 		username := resolveProcessUsername(p.PID, info)
+		memAlloc := p.MemAlloc
+		if memAlloc == nil {
+			memAlloc = p.UsedMemory
+		}
+		sharedMemory := p.SharedMemory
+		if sharedMemory == nil {
+			sharedMemory = readProcessSharedMemoryMB(p.PID)
+		}
 
 		sb.WriteString("gpu_processes,")
 		sb.WriteString(fmt.Sprintf("hostname=%s,", escapeTagVal(hostname)))
@@ -101,7 +109,9 @@ func (w *QuestDBWriter) WriteBatch(
 		sb.WriteString(fmt.Sprintf("container_id=%s,", escapeTagVal(cid)))
 		sb.WriteString(fmt.Sprintf("container_name=%s ", escapeTagVal(cname)))
 		sb.WriteString(fmt.Sprintf("pid=%di,", p.PID))
-		sb.WriteString(fmt.Sprintf("used_memory=%s ", floatToStr(p.UsedMemory)))
+		sb.WriteString(fmt.Sprintf("used_memory=%s,", floatToStr(p.UsedMemory)))
+		sb.WriteString(fmt.Sprintf("mem_alloc=%s,", floatToStr(memAlloc)))
+		sb.WriteString(fmt.Sprintf("shared_memory=%s ", floatToStr(sharedMemory)))
 		sb.WriteString(fmt.Sprintf("%d\n", now))
 	}
 
@@ -139,6 +149,66 @@ func (w *QuestDBWriter) send(body string) error {
 	}
 
 	return nil
+}
+
+func readProcessSharedMemoryMB(pid int) *float64 {
+	if mb, ok := readSmapsRollupSharedMemoryMB(pid); ok {
+		return &mb
+	}
+	if mb, ok := readStatusSharedMemoryMB(pid); ok {
+		return &mb
+	}
+	return nil
+}
+
+func readSmapsRollupSharedMemoryMB(pid int) (float64, bool) {
+	f, err := os.Open(procFile(pid, "smaps_rollup"))
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+
+	sharedKB := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "Shared_Clean:") || strings.HasPrefix(line, "Shared_Dirty:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				value, err := strconv.Atoi(fields[1])
+				if err == nil {
+					sharedKB += value
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, false
+	}
+	return float64(sharedKB) / 1024, true
+}
+
+func readStatusSharedMemoryMB(pid int) (float64, bool) {
+	f, err := os.Open(procFile(pid, "status"))
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "RssShmem:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				value, err := strconv.Atoi(fields[1])
+				if err == nil {
+					return float64(value) / 1024, true
+				}
+			}
+		}
+	}
+	return 0, false
 }
 
 func procFile(pid int, name string) string {

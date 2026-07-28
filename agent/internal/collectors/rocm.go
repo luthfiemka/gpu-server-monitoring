@@ -178,7 +178,41 @@ func parseRocmProcesses(raw string) ([]GpuProcess, error) {
 			p.ProcessName = strings.TrimSpace(name)
 		}
 
+		if mem := parseRocmProcessMemory(row, colIdx); mem != nil {
+			p.UsedMemory = mem
+			p.MemAlloc = mem
+		}
+
 		procs = append(procs, p)
 	}
 	return procs, nil
+}
+
+func parseRocmProcessMemory(row []string, colIdx map[string]int) *float64 {
+	for _, name := range []string{
+		"vram used memory (b)",
+		"vram memory used (b)",
+		"used memory (b)",
+		"vram used (b)",
+		"mem usage (b)",
+	} {
+		if i, ok := colIdx[name]; ok && i >= 0 && i < len(row) {
+			if v := parseFloat(row[i]); v != nil {
+				mb := *v / (1024 * 1024)
+				return &mb
+			}
+		}
+	}
+	for _, name := range []string{
+		"vram used memory (mb)",
+		"vram memory used (mb)",
+		"used memory (mb)",
+		"vram used (mb)",
+		"mem usage (mb)",
+	} {
+		if i, ok := colIdx[name]; ok && i >= 0 && i < len(row) {
+			return parseFloat(row[i])
+		}
+	}
+	return nil
 }

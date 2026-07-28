@@ -57,6 +57,8 @@ export interface GpuProcessRow {
   container_id: string;
   container_name: string;
   used_memory: number;
+  mem_alloc?: number;
+  shared_memory?: number;
 }
 
 export interface GpuTrendRow {
@@ -255,6 +257,8 @@ export async function getContainersSummary(): Promise<
     hostname: string;
     gpu_id: string;
     total_memory: number;
+    total_mem_alloc: number;
+    total_shared_memory: number;
     memory_total: number;
     process_count: number;
   }[]
@@ -266,17 +270,21 @@ export async function getContainersSummary(): Promise<
   const gpuRows = await getLatestGpuMetrics();
   const memoryTotals = new Map(gpuRows.map((gpu) => [`${gpu.hostname}|${gpu.gpu_id}`, gpu.memory_total ?? 0]));
   const latest = dedupLatestByHostGpuPid(rows).filter(r => r.container_id !== '' && r.container_id != null);
-  const map = new Map<string, { container_id: string; container_name: string; hostname: string; gpu_id: string; total_memory: number; memory_total: number; process_count: number }>();
+  const map = new Map<string, { container_id: string; container_name: string; hostname: string; gpu_id: string; total_memory: number; total_mem_alloc: number; total_shared_memory: number; memory_total: number; process_count: number }>();
   for (const r of latest) {
     const key = `${r.container_id}|${r.hostname}|${r.gpu_id}`;
     const memoryTotal = memoryTotals.get(`${r.hostname}|${r.gpu_id}`) ?? 0;
+    const memAlloc = r.mem_alloc ?? r.used_memory ?? 0;
+    const sharedMemory = r.shared_memory ?? 0;
     const existing = map.get(key);
     if (existing) {
       existing.total_memory += r.used_memory;
+      existing.total_mem_alloc += memAlloc;
+      existing.total_shared_memory += sharedMemory;
       existing.process_count += 1;
       existing.memory_total = Math.max(existing.memory_total, memoryTotal);
     } else {
-      map.set(key, { container_id: r.container_id, container_name: r.container_name, hostname: r.hostname, gpu_id: r.gpu_id, total_memory: r.used_memory, memory_total: memoryTotal, process_count: 1 });
+      map.set(key, { container_id: r.container_id, container_name: r.container_name, hostname: r.hostname, gpu_id: r.gpu_id, total_memory: r.used_memory, total_mem_alloc: memAlloc, total_shared_memory: sharedMemory, memory_total: memoryTotal, process_count: 1 });
     }
   }
   return [...map.values()].sort((a, b) => b.total_memory - a.total_memory);

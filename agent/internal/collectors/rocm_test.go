@@ -48,3 +48,29 @@ func TestParseRocmProcessesRequiresDeviceAndPIDColumns(t *testing.T) {
 		t.Fatal("parseRocmProcesses() error = nil, want missing column error")
 	}
 }
+
+func TestParseRocmProcessesReadsMemoryBytes(t *testing.T) {
+	raw := `device,pid,name,vram used memory (B)
+card0,1234,python,2147483648
+`
+
+	procs, err := parseRocmProcesses(raw)
+	if err != nil {
+		t.Fatalf("parseRocmProcesses() error = %v", err)
+	}
+	if len(procs) != 1 {
+		t.Fatalf("len(procs) = %d, want 1", len(procs))
+	}
+	if procs[0].UsedMemory == nil {
+		t.Fatal("UsedMemory = nil, want value")
+	}
+	if *procs[0].UsedMemory != 2048 {
+		t.Fatalf("UsedMemory = %g, want 2048", *procs[0].UsedMemory)
+	}
+	if procs[0].MemAlloc == nil {
+		t.Fatal("MemAlloc = nil, want value")
+	}
+	if *procs[0].MemAlloc != 2048 {
+		t.Fatalf("MemAlloc = %g, want 2048", *procs[0].MemAlloc)
+	}
+}

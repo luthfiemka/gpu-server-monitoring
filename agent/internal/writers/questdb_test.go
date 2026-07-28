@@ -102,3 +102,31 @@ func TestResolveProcessUsernamePrefersDockerInspectOwner(t *testing.T) {
 		t.Fatalf("resolveProcessUsername() = %q, want alice", got)
 	}
 }
+
+func TestReadProcessSharedMemoryUsesSmapsRollup(t *testing.T) {
+	withProcFixture(t, map[string]string{
+		"123/smaps_rollup": "Rss:             4096 kB\nShared_Clean:    1536 kB\nShared_Dirty:     512 kB\nPrivate_Clean:   2048 kB\n",
+	})
+
+	got := readProcessSharedMemoryMB(123)
+	if got == nil {
+		t.Fatal("readProcessSharedMemoryMB() = nil, want value")
+	}
+	if *got != 2 {
+		t.Fatalf("readProcessSharedMemoryMB() = %g, want 2", *got)
+	}
+}
+
+func TestReadProcessSharedMemoryFallsBackToStatus(t *testing.T) {
+	withProcFixture(t, map[string]string{
+		"123/status": "Name:\tpython\nUid:\t1001\t1001\t1001\t1001\nRssShmem:\t3072 kB\n",
+	})
+
+	got := readProcessSharedMemoryMB(123)
+	if got == nil {
+		t.Fatal("readProcessSharedMemoryMB() = nil, want value")
+	}
+	if *got != 3 {
+		t.Fatalf("readProcessSharedMemoryMB() = %g, want 3", *got)
+	}
+}
