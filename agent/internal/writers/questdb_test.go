@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gpu-monitoring-agent/internal/collectors"
 )
 
 func withProcFixture(t *testing.T, files map[string]string) {
@@ -87,5 +89,16 @@ func TestGetUsernameFallsBackToRootWhenContainerOwnerIsUnavailable(t *testing.T)
 
 	if got := getUsername(123, true); got != "root" {
 		t.Fatalf("getUsername() = %q, want root", got)
+	}
+}
+
+func TestResolveProcessUsernamePrefersDockerInspectOwner(t *testing.T) {
+	withProcFixture(t, map[string]string{
+		"123/status": "Name:\tpython\nUid:\t0\t0\t0\t0\n",
+	})
+
+	container := &collectors.ContainerInfo{ID: "abcdef123456", OwnerUser: "alice"}
+	if got := resolveProcessUsername(123, container); got != "alice" {
+		t.Fatalf("resolveProcessUsername() = %q, want alice", got)
 	}
 }

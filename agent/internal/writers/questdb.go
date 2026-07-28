@@ -71,16 +71,27 @@ func (w *QuestDBWriter) WriteBatch(
 		sb.WriteString(fmt.Sprintf("%d\n", now))
 	}
 
+	containerCache := map[string]*collectors.ContainerInfo{}
 	for _, p := range procs {
 		info := collectors.DetectContainer(p.PID)
 		cid := ""
 		cname := ""
 		if info != nil {
+			cacheKey := info.FullID
+			if cacheKey == "" {
+				cacheKey = info.ID
+			}
+			if cached, ok := containerCache[cacheKey]; ok {
+				info = cached
+			} else {
+				info = collectors.InspectContainer(info)
+				containerCache[cacheKey] = info
+			}
 			cid = info.ID
 			cname = info.Name
 		}
 
-		username := getUsername(p.PID, info != nil)
+		username := resolveProcessUsername(p.PID, info)
 
 		sb.WriteString("gpu_processes,")
 		sb.WriteString(fmt.Sprintf("hostname=%s,", escapeTagVal(hostname)))
@@ -140,6 +151,13 @@ func getUsername(pid int, inContainer bool) string {
 		return "unknown"
 	}
 	return lookupUID(uid)
+}
+
+func resolveProcessUsername(pid int, container *collectors.ContainerInfo) string {
+	if container != nil && container.OwnerUser != "" {
+		return container.OwnerUser
+	}
+	return getUsername(pid, container != nil)
 }
 
 func resolveProcessUID(pid int, inContainer bool) (int, bool) {
