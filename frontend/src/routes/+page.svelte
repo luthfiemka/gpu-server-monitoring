@@ -633,10 +633,10 @@
   <div class="card">
     <div class="card-header flex items-center justify-between">
       <span>Running Processes</span>
-      <span class="text-xs" style="color: var(--tblr-muted);">{processes.length} processes</span>
+      <span class="text-xs" style="color: var(--tblr-muted);">{processes.length} processes · highest VRAM first</span>
     </div>
     <div class="card-body p-0">
-      <ProcessTable {processes} />
+      <ProcessTable {processes} paginated sortByMemoryDesc pageSize={10} />
     </div>
   </div>
 </div>
