@@ -60,6 +60,7 @@ func main() {
 	w := writers.NewQuestDBWriter(
 		cfg.QuestDB.Host,
 		cfg.QuestDB.ILPPort,
+		cfg.QuestDB.ILPAuth,
 	)
 
 	sigCh := make(chan os.Signal, 1)

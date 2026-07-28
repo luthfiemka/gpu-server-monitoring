@@ -20,8 +20,8 @@ type QuestDB struct {
 }
 
 type Agent struct {
-	QuestDB   QuestDB
-	Hostname  string
+	QuestDB  QuestDB
+	Hostname string
 }
 
 func envOr(key, fallback string) string {
@@ -87,14 +87,14 @@ func Load(path string) (*Agent, error) {
 		return fallback
 	}
 
-GetInt := func(key string, fallback int) int {
-	if v, ok := q[key]; ok && v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
-			return i
+	GetInt := func(key string, fallback int) int {
+		if v, ok := q[key]; ok && v != "" {
+			if i, err := strconv.Atoi(v); err == nil {
+				return i
+			}
 		}
+		return fallback
 	}
-	return fallback
-}
 
 	hostname := ""
 	if a, ok := sections["agent"]; ok {
@@ -106,6 +106,7 @@ GetInt := func(key string, fallback int) int {
 			Host:     envOr("GPU_DASH_QUESTDB_HOST", get("host", "localhost")),
 			Port:     envOrInt("GPU_DASH_QUESTDB_PORT", GetInt("port", 9000)),
 			ILPPort:  envOrInt("GPU_DASH_QUESTDB_ILP_PORT", GetInt("ilp_port", 9009)),
+			ILPAuth:  envOr("GPU_DASH_QUESTDB_ILP_AUTH", get("ilp_auth", "")),
 			User:     envOr("GPU_DASH_QUESTDB_USER", get("user", "admin")),
 			Password: envOr("GPU_DASH_QUESTDB_PASSWORD", get("password", "quest")),
 			Protocol: envOr("GPU_DASH_QUESTDB_PROTOCOL", get("protocol", "http")),

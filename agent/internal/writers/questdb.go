@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,11 @@ type QuestDBWriter struct {
 	port  int
 	token string
 }
+
+var (
+	procRoot   = "/proc"
+	passwdPath = "/etc/passwd"
+)
 
 func NewQuestDBWriter(host string, ilpPort int, token string) *QuestDBWriter {
 	return &QuestDBWriter{
@@ -73,7 +80,7 @@ func (w *QuestDBWriter) WriteBatch(
 			cname = info.Name
 		}
 
-		username := getUsername(p.PID)
+		username := getUsername(p.PID, info != nil)
 
 		sb.WriteString("gpu_processes,")
 		sb.WriteString(fmt.Sprintf("hostname=%s,", escapeTagVal(hostname)))
@@ -123,11 +130,49 @@ func (w *QuestDBWriter) send(body string) error {
 	return nil
 }
 
-func getUsername(pid int) string {
-	path := fmt.Sprintf("/proc/%d/status", pid)
-	f, err := os.Open(path)
-	if err != nil {
+func procFile(pid int, name string) string {
+	return filepath.Join(procRoot, strconv.Itoa(pid), name)
+}
+
+func getUsername(pid int, inContainer bool) string {
+	uid, ok := resolveProcessUID(pid, inContainer)
+	if !ok {
 		return "unknown"
+	}
+	return lookupUID(uid)
+}
+
+func resolveProcessUID(pid int, inContainer bool) (int, bool) {
+	statusUID, statusOK := readStatusUID(pid)
+	loginUID, loginOK := readLoginUID(pid)
+	mappedRootUID, mappedRootOK := readMappedRootUID(pid)
+
+	if inContainer {
+		if loginOK && loginUID != 0 {
+			return loginUID, true
+		}
+		if statusOK && statusUID == 0 && mappedRootOK {
+			return mappedRootUID, true
+		}
+		if statusOK {
+			return statusUID, true
+		}
+		return loginUID, loginOK
+	}
+
+	if loginOK && loginUID != 0 && (!statusOK || statusUID == 0) {
+		return loginUID, true
+	}
+	if statusOK {
+		return statusUID, true
+	}
+	return loginUID, loginOK
+}
+
+func readStatusUID(pid int) (int, bool) {
+	f, err := os.Open(procFile(pid, "status"))
+	if err != nil {
+		return 0, false
 	}
 	defer f.Close()
 
@@ -137,17 +182,56 @@ func getUsername(pid int) string {
 		if strings.HasPrefix(line, "Uid:") {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
-				var uid int
-				fmt.Sscanf(fields[1], "%d", &uid)
-				return lookupUID(uid)
+				uid, err := strconv.Atoi(fields[1])
+				if err == nil {
+					return uid, true
+				}
 			}
 		}
 	}
-	return "unknown"
+	return 0, false
+}
+
+func readLoginUID(pid int) (int, bool) {
+	raw, err := os.ReadFile(procFile(pid, "loginuid"))
+	if err != nil {
+		return 0, false
+	}
+	value, err := strconv.ParseUint(strings.TrimSpace(string(raw)), 10, 32)
+	if err != nil || value == 4294967295 {
+		return 0, false
+	}
+	return int(value), true
+}
+
+func readMappedRootUID(pid int) (int, bool) {
+	f, err := os.Open(procFile(pid, "uid_map"))
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 3 {
+			continue
+		}
+		containerStart, err1 := strconv.Atoi(fields[0])
+		hostStart, err2 := strconv.Atoi(fields[1])
+		length, err3 := strconv.Atoi(fields[2])
+		if err1 != nil || err2 != nil || err3 != nil {
+			continue
+		}
+		if containerStart == 0 && hostStart != 0 && length > 0 {
+			return hostStart, true
+		}
+	}
+	return 0, false
 }
 
 func lookupUID(uid int) string {
-	f, err := os.Open("/etc/passwd")
+	f, err := os.Open(passwdPath)
 	if err != nil {
 		return fmt.Sprintf("%d", uid)
 	}
@@ -157,9 +241,8 @@ func lookupUID(uid int) string {
 	for scanner.Scan() {
 		parts := strings.Split(scanner.Text(), ":")
 		if len(parts) >= 3 {
-			var id int
-			fmt.Sscanf(parts[2], "%d", &id)
-			if id == uid {
+			id, err := strconv.Atoi(parts[2])
+			if err == nil && id == uid {
 				return parts[0]
 			}
 		}
