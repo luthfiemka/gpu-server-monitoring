@@ -59,6 +59,16 @@ export interface GpuProcessRow {
   used_memory: number;
 }
 
+export interface GpuTrendRow {
+  timestamp: string;
+  hostname: string;
+  gpu_id: string;
+  memory_used: number;
+  memory_total: number;
+  power_draw: number;
+  power_limit: number;
+}
+
 function dedupLatestByHostGpu(rows: GpuMetricsRow[]): GpuMetricsRow[] {
   const map = new Map<string, GpuMetricsRow>();
   for (const r of rows) {
@@ -145,6 +155,27 @@ export async function getHistory(
     WHERE "timestamp" BETWEEN '${from}' AND '${to}'
     SAMPLE BY ${sampleBy} ALIGN TO CALENDAR
     ORDER BY "timestamp", gpu_id
+  `);
+}
+
+export async function getGpuTrend(
+  from: string,
+  to: string,
+  sampleBy = '30m'
+): Promise<GpuTrendRow[]> {
+  return querySql<GpuTrendRow>(`
+    SELECT
+      "timestamp",
+      hostname,
+      gpu_id,
+      avg(memory_used) memory_used,
+      max(memory_total) memory_total,
+      avg(power_draw) power_draw,
+      max(power_limit) power_limit
+    FROM gpu_metrics
+    WHERE "timestamp" BETWEEN '${from}' AND '${to}'
+    SAMPLE BY ${sampleBy} ALIGN TO CALENDAR
+    ORDER BY "timestamp", hostname, gpu_id
   `);
 }
 

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { Activity, Cpu, Database, Server, Thermometer, Zap } from '@lucide/svelte';
   import ProcessTable from '$lib/components/ProcessTable.svelte';
-  import type { GpuMetricsRow, GpuProcessRow } from '$lib/server/questdb';
+  import type { GpuMetricsRow, GpuProcessRow, GpuTrendRow } from '$lib/server/questdb';
 
   type LiveSample = {
     timestamp: number;
@@ -50,7 +50,8 @@
     endLabel: string;
   };
 
-  const MAX_CHART_POINTS = 60;
+  const WEEKLY_CHART_SAMPLE_BY = '30m';
+  const WEEKLY_CHART_REFRESH_MS = 5 * 60 * 1000;
   const CHART_COLORS = ['#2563eb', '#16a34a', '#f97316', '#dc2626', '#7c3aed', '#0891b2', '#ca8a04', '#db2777'];
   const CHART = {
     width: 1040,
@@ -65,8 +66,11 @@
   let processes = $state<GpuProcessRow[]>([]);
   let chartSamples = $state<LiveSample[]>([]);
   let error = $state('');
+  let chartError = $state('');
   let lastUpdate = $state<Date | null>(null);
+  let chartLastUpdate = $state<Date | null>(null);
   let interval: ReturnType<typeof setInterval>;
+  let trendInterval: ReturnType<typeof setInterval>;
 
   function gpuKey(gpu: Pick<GpuMetricsRow, 'hostname' | 'gpu_id'>) {
     return `${gpu.hostname}|${gpu.gpu_id}`;
@@ -95,37 +99,6 @@
     return total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
   }
 
-  function updateChartSamples(rows: GpuMetricsRow[]) {
-    const timestamp = Date.now();
-    const activeKeys = new Set(rows.map(gpuKey));
-    const grouped = new Map<string, LiveSample[]>();
-
-    for (const sample of chartSamples) {
-      const key = sampleKey(sample);
-      if (!activeKeys.has(key)) continue;
-      const samples = grouped.get(key) ?? [];
-      samples.push(sample);
-      grouped.set(key, samples);
-    }
-
-    for (const gpu of rows) {
-      const key = gpuKey(gpu);
-      const samples = grouped.get(key) ?? [];
-      samples.push({
-        timestamp,
-        hostname: gpu.hostname,
-        gpu_id: gpu.gpu_id,
-        memory_used_gb: (gpu.memory_used ?? 0) / 1024,
-        memory_total_gb: (gpu.memory_total ?? 0) / 1024,
-        power_draw: gpu.power_draw ?? 0,
-        power_limit: gpu.power_limit ?? 0
-      });
-      grouped.set(key, samples.slice(-MAX_CHART_POINTS));
-    }
-
-    chartSamples = [...grouped.values()].flat();
-  }
-
   async function fetchData() {
     try {
       const res = await fetch('/api/gpu');
@@ -135,7 +108,6 @@
       } else {
         gpus = data.gpus;
         processes = data.processes;
-        updateChartSamples(data.gpus);
         error = '';
         lastUpdate = new Date();
       }
@@ -144,10 +116,47 @@
     }
   }
 
+  function mapTrendRows(rows: GpuTrendRow[]) {
+    return rows
+      .map((row) => ({
+        timestamp: new Date(row.timestamp).getTime(),
+        hostname: row.hostname,
+        gpu_id: row.gpu_id,
+        memory_used_gb: (row.memory_used ?? 0) / 1024,
+        memory_total_gb: (row.memory_total ?? 0) / 1024,
+        power_draw: row.power_draw ?? 0,
+        power_limit: row.power_limit ?? 0
+      }))
+      .filter((sample) => Number.isFinite(sample.timestamp))
+      .sort((a, b) => a.timestamp - b.timestamp || a.hostname.localeCompare(b.hostname) || compareGpuId(a.gpu_id, b.gpu_id));
+  }
+
+  async function fetchWeeklyTrend() {
+    try {
+      const params = new URLSearchParams({ sample_by: WEEKLY_CHART_SAMPLE_BY });
+      const res = await fetch(`/api/gpu/trend?${params}`);
+      const data = await res.json();
+      if (data.error) {
+        chartError = data.error;
+      } else {
+        chartSamples = mapTrendRows(data.trend ?? []);
+        chartError = '';
+        chartLastUpdate = new Date();
+      }
+    } catch {
+      chartError = 'Failed to fetch weekly GPU trend';
+    }
+  }
+
   onMount(() => {
     fetchData();
+    fetchWeeklyTrend();
     interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
+    trendInterval = setInterval(fetchWeeklyTrend, WEEKLY_CHART_REFRESH_MS);
+    return () => {
+      clearInterval(interval);
+      clearInterval(trendInterval);
+    };
   });
 
   function buildServerGroups(rows: GpuMetricsRow[], processRows: GpuProcessRow[]): ServerGroup[] {
@@ -210,6 +219,15 @@
   function formatChartValue(value: number, unit: string) {
     const formatted = unit === 'GB' ? formatGb(value) : value.toFixed(0);
     return `${formatted}${unit}`;
+  }
+
+  function formatChartTime(timestamp: number) {
+    return new Date(timestamp).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   }
 
   function distributeLabelY(lines: ChartLine[]) {
@@ -297,8 +315,8 @@
       lines,
       maxValue,
       ticks,
-      startLabel: new Date(minTime).toLocaleTimeString(),
-      endLabel: new Date(maxTime).toLocaleTimeString()
+      startLabel: formatChartTime(minTime),
+      endLabel: formatChartTime(maxTime)
     };
   }
 
@@ -385,19 +403,27 @@
   <div class="card">
     <div class="card-header flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <div>GPU Metrics Trend</div>
+        <div>Weekly GPU Metrics Trend</div>
         <div class="text-xs font-normal mt-0.5" style="color: var(--tblr-muted);">
-          {chartSamples.length > 0 ? `${chartPanels[0].startLabel} - ${chartPanels[0].endLabel}` : 'Waiting for live samples'}
+          {chartSamples.length > 0 ? `${chartPanels[0].startLabel} - ${chartPanels[0].endLabel}` : 'Loading 7-day history'}
+          {#if chartLastUpdate}
+            · Updated {chartLastUpdate.toLocaleTimeString()}
+          {/if}
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2 text-xs">
         <span class="badge badge-success">{chartGpuCount} GPU{chartGpuCount === 1 ? '' : 's'}</span>
         <span class="badge" style="background: rgb(32 107 196 / 0.1); color: var(--tblr-primary);">
-          {Math.min(MAX_CHART_POINTS, chartSamples.length)} live samples
+          7 days · {WEEKLY_CHART_SAMPLE_BY} sample
         </span>
       </div>
     </div>
     <div class="card-body">
+      {#if chartError}
+        <div class="mb-4 rounded border px-3 py-2 text-sm" style="border-color: var(--tblr-danger); color: var(--tblr-danger);">
+          {chartError}
+        </div>
+      {/if}
       {#if chartPanels.some((panel) => panel.lines.length > 0)}
         <div class="grid gap-5 2xl:grid-cols-2">
           {#each chartPanels as panel (panel.kind)}
@@ -406,7 +432,7 @@
                 <div>
                   <h2 class="text-sm font-semibold">{panel.title}</h2>
                   <p class="mt-0.5 text-xs" style="color: var(--tblr-muted);">
-                    Live trend by server GPU
+                    7-day sampled trend by server GPU
                   </p>
                 </div>
                 <div class="text-right">
