@@ -1,0 +1,42 @@
+services:
+  questdb:
+    image: questdb/questdb:8.2.3
+    container_name: questdb
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # Web Console
+      - "9009:9009"   # ILP TCP
+      - "9001:9001"   # PostgreSQL wire protocol
+      - "9003:9003"   # REST API
+    volumes:
+      - ./data/questdb:/var/lib/questdb
+    environment:
+      - QDB_PG_USER=admin
+      - QDB_PG_PASSWORD=quest
+      - QDB_ILP_AUTH=quest
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: gpu-monitoring-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:3000"
+    environment:
+      - QUESTDB_URL=http://questdb:9000
+      - QUESTDB_USER=admin
+      - QUESTDB_PASS=quest
+      - ADMIN_USER=admin
+      - ADMIN_PASS=admin
+      - HOST=0.0.0.0
+      - PORT=3000
+      - ORIGIN=http://localhost:5173
+    depends_on:
+      questdb:
+        condition: service_healthy

@@ -1,0 +1,52 @@
+# Sample Docker Compose — deploy frontend from Docker Hub
+# Usage:
+#   cp docker-compose-sample.yml docker-compose.yml
+#   # Edit environment variables below
+#   docker compose up -d
+
+services:
+  questdb:
+    image: questdb/questdb:8.2.3
+    container_name: questdb
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # Web Console / REST API
+      - "9009:9009"   # ILP TCP
+      - "9001:9001"   # PostgreSQL wire protocol
+      - "9003:9003"   # REST API
+    volumes:
+      - questdb-data:/var/lib/questdb
+    environment:
+      - QDB_PG_USER=admin
+      - QDB_PG_PASSWORD=quest
+      - QDB_ILP_AUTH=quest
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    image: infraunnes/gpu-server-monitoring-frontend:latest
+    container_name: gpu-monitoring-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:3000"
+    environment:
+      # QuestDB connection
+      - QUESTDB_URL=http://questdb:9000
+      - QUESTDB_USER=admin
+      - QUESTDB_PASS=quest
+      # Dashboard login credentials
+      - ADMIN_USER=admin
+      - ADMIN_PASS=admin
+      # Server config
+      - HOST=0.0.0.0
+      - PORT=3000
+      - ORIGIN=http://localhost:5173
+    depends_on:
+      questdb:
+        condition: service_healthy
+
+volumes:
+  questdb-data:
