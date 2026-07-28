@@ -180,22 +180,26 @@ export async function getGpuTrend(
 }
 
 export async function getUsersSummary(): Promise<
-  { username: string; hostname: string; gpu_id: string; total_memory: number; process_count: number }[]
+  { username: string; hostname: string; gpu_id: string; total_memory: number; memory_total: number; process_count: number }[]
 > {
   const rows = await querySql<GpuProcessRow>(`
     SELECT * FROM gpu_processes
     WHERE "timestamp" > dateadd('s', -15, now())
   `);
+  const gpuRows = await getLatestGpuMetrics();
+  const memoryTotals = new Map(gpuRows.map((gpu) => [`${gpu.hostname}|${gpu.gpu_id}`, gpu.memory_total ?? 0]));
   const latest = dedupLatestByHostGpuPid(rows);
-  const map = new Map<string, { username: string; hostname: string; gpu_id: string; total_memory: number; process_count: number }>();
+  const map = new Map<string, { username: string; hostname: string; gpu_id: string; total_memory: number; memory_total: number; process_count: number }>();
   for (const r of latest) {
     const key = `${r.username}|${r.hostname}|${r.gpu_id}`;
+    const memoryTotal = memoryTotals.get(`${r.hostname}|${r.gpu_id}`) ?? 0;
     const existing = map.get(key);
     if (existing) {
       existing.total_memory += r.used_memory;
       existing.process_count += 1;
+      existing.memory_total = Math.max(existing.memory_total, memoryTotal);
     } else {
-      map.set(key, { username: r.username, hostname: r.hostname, gpu_id: r.gpu_id, total_memory: r.used_memory, process_count: 1 });
+      map.set(key, { username: r.username, hostname: r.hostname, gpu_id: r.gpu_id, total_memory: r.used_memory, memory_total: memoryTotal, process_count: 1 });
     }
   }
   return [...map.values()].sort((a, b) => b.total_memory - a.total_memory);
