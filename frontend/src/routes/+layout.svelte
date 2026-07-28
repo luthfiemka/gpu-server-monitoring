@@ -2,6 +2,7 @@
   import '../app.css';
   import type { Snippet } from 'svelte';
   import type { LayoutData } from './$types';
+  import { browser } from '$app/environment';
   import { theme } from '$lib/stores/theme';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -12,6 +13,9 @@
     Clock,
     Sun,
     Moon,
+    Monitor,
+    PanelLeftClose,
+    PanelLeftOpen,
     LogOut,
     Cpu
   } from '@lucide/svelte';
@@ -31,6 +35,17 @@
   }
 
   let showMobileMenu = $state(false);
+  let sidebarCollapsed = $state(false);
+
+  if (browser) {
+    sidebarCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+  }
+
+  $effect(() => {
+    if (browser) {
+      localStorage.setItem('sidebar-collapsed', String(sidebarCollapsed));
+    }
+  });
 </script>
 
 {#if !data.user || page.url.pathname === '/login'}
@@ -38,12 +53,25 @@
 {:else}
   <div class="flex h-screen overflow-hidden">
     <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="px-4 py-3 flex items-center gap-2.5 border-b border-white/10">
-        <div class="w-8 h-8 rounded bg-blue-600 flex items-center justify-center">
+    <aside class="sidebar" class:collapsed={sidebarCollapsed}>
+      <div class="sidebar-brand border-b border-white/10">
+        <div class="sidebar-brand-icon w-8 h-8 rounded bg-blue-600 flex items-center justify-center">
           <Cpu class="h-5 w-5 text-white" />
         </div>
-        <span class="font-semibold text-white text-sm">GPU Dashboard</span>
+        <span class="sidebar-label font-semibold text-white text-sm">GPU Dashboard</span>
+        <button
+          type="button"
+          onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
+          class="sidebar-collapse-btn"
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {#if sidebarCollapsed}
+            <PanelLeftOpen class="h-4 w-4" />
+          {:else}
+            <PanelLeftClose class="h-4 w-4" />
+          {/if}
+        </button>
       </div>
 
       <nav class="sidebar-nav">
@@ -53,9 +81,10 @@
             href={item.href}
             class="sidebar-link"
             class:active
+            title={item.label}
           >
-            <item.icon class="h-5 w-5" />
-            {item.label}
+            <item.icon class="sidebar-link-icon h-5 w-5" />
+            <span class="sidebar-label">{item.label}</span>
           </a>
         {/each}
       </nav>
@@ -64,21 +93,36 @@
         <button
           onclick={() => theme.toggle()}
           class="sidebar-link w-full"
+          title={$theme === 'system' ? 'System theme' : $theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
         >
-          {#if $theme === 'dark'}
+          {#if $theme === 'system'}
+            <Monitor class="sidebar-link-icon h-5 w-5" />
+            <span class="sidebar-label">System Theme</span>
+          {:else if $theme === 'dark'}
             <Sun class="h-5 w-5" />
-            Light Mode
+            <span class="sidebar-label">Light Mode</span>
           {:else}
             <Moon class="h-5 w-5" />
-            Dark Mode
+            <span class="sidebar-label">Dark Mode</span>
           {/if}
         </button>
+        {#if $theme !== 'system'}
+          <button
+            onclick={() => theme.useSystem()}
+            class="sidebar-link w-full"
+            title="Follow system theme"
+          >
+            <Monitor class="sidebar-link-icon h-5 w-5" />
+            <span class="sidebar-label">Auto Theme</span>
+          </button>
+        {/if}
         <button
           onclick={logout}
           class="sidebar-link w-full"
+          title="Logout"
         >
-          <LogOut class="h-5 w-5" />
-          Logout
+          <LogOut class="sidebar-link-icon h-5 w-5" />
+          <span class="sidebar-label">Logout</span>
         </button>
       </div>
     </aside>
