@@ -41,7 +41,7 @@ func CollectGpusAMD() ([]GpuMetrics, error) {
 		return nil, err
 	}
 
-	reader := csv.NewReader(strings.NewReader(raw))
+	reader := newRocmCSVReader(raw)
 	records, err := reader.ReadAll()
 	if err != nil {
 		return nil, fmt.Errorf("parse rocm-smi output: %w", err)
@@ -59,7 +59,10 @@ func CollectGpusAMD() ([]GpuMetrics, error) {
 
 	gpus := make([]GpuMetrics, 0, len(records)-1)
 	for _, row := range records[1:] {
-		gpuIdx := colIdx["device"]
+		gpuIdx, ok := colIdx["device"]
+		if !ok {
+			return nil, fmt.Errorf("rocm-smi: missing device column")
+		}
 		if gpuIdx < 0 || gpuIdx >= len(row) {
 			continue
 		}
@@ -116,7 +119,18 @@ func CollectProcessesAMD() ([]GpuProcess, error) {
 		return nil, nil
 	}
 
+	return parseRocmProcesses(raw)
+}
+
+func newRocmCSVReader(raw string) *csv.Reader {
 	reader := csv.NewReader(strings.NewReader(raw))
+	reader.FieldsPerRecord = -1
+	reader.LazyQuotes = true
+	return reader
+}
+
+func parseRocmProcesses(raw string) ([]GpuProcess, error) {
+	reader := newRocmCSVReader(raw)
 	records, err := reader.ReadAll()
 	if err != nil {
 		return nil, fmt.Errorf("parse rocm-smi processes: %w", err)
@@ -132,11 +146,14 @@ func CollectProcessesAMD() ([]GpuProcess, error) {
 		colIdx[strings.TrimSpace(strings.ToLower(h))] = i
 	}
 
+	gpuIdx, hasGPU := colIdx["device"]
+	pidIdx, hasPID := colIdx["pid"]
+	if !hasGPU || !hasPID {
+		return nil, fmt.Errorf("rocm-smi processes: missing device or pid column")
+	}
+
 	procs := make([]GpuProcess, 0)
 	for _, row := range records[1:] {
-		gpuIdx := colIdx["device"]
-		pidIdx := colIdx["pid"]
-
 		if gpuIdx < 0 || pidIdx < 0 || gpuIdx >= len(row) || pidIdx >= len(row) {
 			continue
 		}
@@ -147,14 +164,18 @@ func CollectProcessesAMD() ([]GpuProcess, error) {
 		}
 
 		p := GpuProcess{
-			GpuID:    strings.TrimSpace(row[gpuIdx]),
-			GpuUUID:  strings.TrimSpace(row[gpuIdx]),
-			PID:      pid,
+			GpuID:   strings.TrimSpace(row[gpuIdx]),
+			GpuUUID: strings.TrimSpace(row[gpuIdx]),
+			PID:     pid,
 		}
 
-		nameIdx := colIdx["name"]
-		if nameIdx >= 0 && nameIdx < len(row) {
-			p.ProcessName = strings.TrimSpace(row[nameIdx])
+		nameIdx, hasName := colIdx["name"]
+		if hasName && nameIdx >= 0 && nameIdx < len(row) {
+			name := row[nameIdx]
+			if nameIdx == len(header)-1 && len(row) > len(header) {
+				name = strings.Join(row[nameIdx:], ",")
+			}
+			p.ProcessName = strings.TrimSpace(name)
 		}
 
 		procs = append(procs, p)
