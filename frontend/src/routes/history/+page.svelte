@@ -59,24 +59,26 @@
     <div class="card-body">
       <form onsubmit={handleSubmit} class="flex flex-wrap items-end gap-4">
         <div>
-          <label class="form-label">From</label>
+          <label for="history-from" class="form-label">From</label>
           <input
+            id="history-from"
             type="datetime-local"
             bind:value={from}
             class="form-control"
           />
         </div>
         <div>
-          <label class="form-label">To</label>
+          <label for="history-to" class="form-label">To</label>
           <input
+            id="history-to"
             type="datetime-local"
             bind:value={to}
             class="form-control"
           />
         </div>
         <div>
-          <label class="form-label">Sample By</label>
-          <select bind:value={sampleBy} class="form-control">
+          <label for="history-sample-by" class="form-label">Sample By</label>
+          <select id="history-sample-by" bind:value={sampleBy} class="form-control">
             <option value="1m">1 minute</option>
             <option value="5m">5 minutes</option>
             <option value="15m">15 minutes</option>

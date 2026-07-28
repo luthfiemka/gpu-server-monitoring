@@ -5,8 +5,8 @@
   import ProcessTable from '$lib/components/ProcessTable.svelte';
   import type { GpuMetricsRow, GpuProcessRow } from '$lib/server/questdb';
 
-  const gpuId = $derived(page.params.gpuId);
-  const hostname = $derived(decodeURIComponent(page.params.hostname));
+  const gpuId = $derived(page.params.gpuId ?? '');
+  const hostname = $derived(decodeURIComponent(page.params.hostname ?? ''));
 
   let gpus = $state<GpuMetricsRow[]>([]);
   let processes = $state<GpuProcessRow[]>([]);

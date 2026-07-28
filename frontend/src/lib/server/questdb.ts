@@ -8,7 +8,7 @@ export async function querySql<T = Record<string, unknown>>(sql: string): Promis
   const params = new URLSearchParams({ query: sql });
   const res = await fetch(`${QUESTDB_URL}/exec?${params.toString()}`, {
     headers: {
-      Authorization: 'Basic ' + Buffer.from(`${QUESTDB_USER}:${QUESTDB_PASS}`).toString('base64')
+      Authorization: 'Basic ' + btoa(`${QUESTDB_USER}:${QUESTDB_PASS}`)
     }
   });
 

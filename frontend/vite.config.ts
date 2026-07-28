@@ -11,7 +11,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/questdb/, ''),
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('Authorization', 'Basic ' + Buffer.from('admin:quest').toString('base64'));
+            proxyReq.setHeader('Authorization', 'Basic ' + btoa('admin:quest'));
           });
         }
       }
