@@ -11,6 +11,7 @@
     Users,
     Container,
     Clock,
+    Settings,
     Sun,
     Moon,
     Monitor,
@@ -20,13 +21,15 @@
     Cpu
   } from '@lucide/svelte';
 
-  let { data, children }: { data: LayoutData; children: Snippet } = $props();
+  interface BrandData { logo_url: string; brand_name: string; }
+  let { data, children }: { data: LayoutData & { brand?: BrandData }; children: Snippet } = $props();
 
   const navItems = [
     { href: '/', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/users', label: 'Users', icon: Users },
     { href: '/containers', label: 'Containers', icon: Container },
-    { href: '/history', label: 'History', icon: Clock }
+    { href: '/history', label: 'History', icon: Clock },
+    { href: '/settings', label: 'Settings', icon: Settings }
   ];
 
   async function logout() {
@@ -55,10 +58,14 @@
     <!-- Sidebar -->
     <aside class="sidebar" class:collapsed={sidebarCollapsed}>
       <div class="sidebar-brand border-b border-white/10">
-        <div class="sidebar-brand-icon w-8 h-8 rounded bg-blue-600 flex items-center justify-center">
-          <Cpu class="h-5 w-5 text-white" />
-        </div>
-        <span class="sidebar-label font-semibold text-white text-sm">GPU Dashboard</span>
+        {#if data.brand?.logo_url}
+          <img src={data.brand!.logo_url} alt="Logo" class="sidebar-brand-icon w-8 h-8 rounded object-contain" style="background: var(--tblr-card-bg);" onerror={() => { if (data.brand) data.brand.logo_url = ''; }} />
+        {:else}
+          <div class="sidebar-brand-icon w-8 h-8 rounded bg-blue-600 flex items-center justify-center">
+            <Cpu class="h-5 w-5 text-white" />
+          </div>
+        {/if}
+        <span class="sidebar-label font-semibold text-white text-sm">{data.brand?.brand_name || 'GPU Dashboard'}</span>
         <button
           type="button"
           onclick={() => (sidebarCollapsed = !sidebarCollapsed)}

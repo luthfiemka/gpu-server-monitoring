@@ -37,6 +37,9 @@ services:
       - HOST=0.0.0.0
       - PORT=3000
       - ORIGIN=http://localhost:5173
+      - SETTINGS_DIR=/data/settings
+    volumes:
+      - ./data/settings:/data/settings
     depends_on:
       questdb:
         condition: service_healthy
