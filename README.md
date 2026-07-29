@@ -9,7 +9,7 @@ Real-time dashboard for monitoring NVIDIA (and AMD) GPU servers. Lightweight Go 
 ![GPU Server Monitoring](GPU%20Server%20Monitoring.png)
 
 ```
-Dashboard:    /  → 6 GPU cards across 3 servers, KPI totals, process table
+Dashboard:    /  → All GPU cards across all servers, KPI totals, process table
 GPU detail:   /gpus/gpu-server-01/0 → live stats + history chart + processes
 Users:        /users → GPU memory grouped by Linux user
 Containers:   /containers → GPU usage grouped by Docker container
