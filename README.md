@@ -1,12 +1,15 @@
 # GPU Server Monitoring
 
+![GPU Server Monitoring](GPU%20Server%20Monitoring.png)
+
 Real-time dashboard for monitoring NVIDIA (and AMD) GPU servers. Lightweight Go agent polls `nvidia-smi` (or `rocm-smi`) every few seconds and sends metrics to QuestDB time-series database. SvelteKit frontend displays everything in a clean web dashboard.
 
 **Use case:** You have 1–50 GPU servers and want a simple web UI to see utilization, memory, temperature, power, running processes, users, and Docker containers — without paying for a commercial monitoring tool.
 
 ## Screenshots (what you'll build)
-
-![GPU Server Monitoring](GPU%20Server%20Monitoring.png)
+![GPU Server Monitoring Main Dashboard](screenshot-1.png)
+![GPU Server Monitoring Containers](screenshot-2.png)
+![GPU Server Monitoring Users](screenshot-3.png)
 
 ```
 Dashboard:    /  → All GPU cards across all servers, KPI totals, process table
